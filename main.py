@@ -2,8 +2,17 @@ from bakery import assert_equal
 from drafter import *
 from dataclasses import dataclass
 
-from meta import *
-from state import State
+
+set_site_information(
+    author = 'rmdang@udel.edu',
+    description = 'A simple calculator that replaces Microsoft calculator because it sucks.',
+    sources = [''],
+    planning = [''],
+    links = ['https://github.com/UD-F25-CS1/cs1-website-f25-01010111-01101000-01111001-00111111', '']
+)
+hide_debug_information()
+set_website_title("Minhisoft Calculator")
+set_website_framed(False)
 
 
 @dataclass
@@ -383,15 +392,29 @@ def filter_characters(input_str: str)-> str:
         these characters will be ignored.
     '''
     decimal_possible = True
+    sign_possible = True
+    e_possible = True
+    num_list = ['0','1','2','3','4','5','6','7','8','9']
     num_str = ''
     if has_value(input_str):
         if input_str[0] == '-':
+            sign_possible = False
             num_str += '-'
-        
+            
         for character in input_str:
-            if character in ['0','1','2','3','4','5','6','7','8','9']:
+            if character in num_list:
                 num_str += character
                 
+            elif character in ['e','+','-']:
+                if character == 'e' and e_possible:
+                    e_possible = False
+                    sign_possible = True
+                    num_str += 'e'
+                
+                elif sign_possible and num_str[-1] not in num_list:
+                    sign_possible = False
+                    num_str += character
+            
             elif character == '.' and decimal_possible:
                 num_str += '.'
                 decimal_possible = False
@@ -399,20 +422,20 @@ def filter_characters(input_str: str)-> str:
             elif character == '/' and '/' not in num_str:
                 num_str += '/'
                 decimal_possible = True
-        
+                
         return num_str
     else:
         return '0.0'
     
     
-def eval_frac(state: State, num_str: str)-> float:
+def eval_float(state: State, num_str: str)-> float:
     '''
     Args:
         State, string
     Returns:
         float
         
-    Separates the incoming string by '/' and turns each side into floats.
+    Separates the incoming string by '/' or 'e' and turns each side into floats.
     The divided value is returned unless the denominator is zero.
         In such case an error message is saved and goes to results_page().
     '''
@@ -424,7 +447,13 @@ def eval_frac(state: State, num_str: str)-> float:
             return numerator / denominator
         else:
             raise ZeroDivisionError(comma_format(numerator))
-        
+    
+    elif 'e' in num_str:
+        num_split = num_str.split('e')
+        base = float(num_split[0])
+        exponent = float(num_split[1])
+        return base ** exponent
+    
     else:
         return float(num_str)
 
@@ -446,32 +475,34 @@ def combined_calc(state: State, first_str: str, second_str: str)-> Page:
         into State.history as the first item.
     '''
     try:
-        first = eval_frac(state, filter_characters(first_str))
-        second = eval_frac(state, filter_characters(second_str))
+        first = eval_float(state, filter_characters(first_str))
+        second = eval_float(state, filter_characters(second_str))
         first_formatted = comma_format(first)
         second_formatted = comma_format(second)
         result = 'DNE'
         if state.option == '+':
-            result = first + second
-            state.operators.append('+')
-            state.steps.append(f"{first_formatted} + {second_formatted} = {comma_format(result)}")
             if second < 0:
                 state.last_equation = first_formatted + ' − ' + second_formatted[1:]
             else:
                 state.last_equation = first_formatted + ' + ' + second_formatted
+            
+            result = first + second
+            state.operators.append('+')
+            state.steps.append(f"{first_formatted} + {second_formatted} = {comma_format(result)}")
         
         elif state.option == '−':
-            result = first - second
-            state.operators.append('−')
-            state.steps.append(f"{first_formatted} − {second_formatted} = {comma_format(result)}")
             if second < 0:
                 state.last_equation = first_formatted + ' + ' + second_formatted[1:]
             else:
                 state.last_equation = first_formatted + ' − ' + second_formatted
+            
+            result = first - second
+            state.operators.append('−')
+            state.steps.append(f"{first_formatted} − {second_formatted} = {comma_format(result)}")
         
         elif state.option == '×':
-            result = first * second
             state.last_equation = first_formatted + ' × ' + second_formatted
+            result = first * second
             state.operators.append('×')
             state.steps.append(f"{first_formatted} × {second_formatted} = {comma_format(result)}")
         
@@ -485,8 +516,8 @@ def combined_calc(state: State, first_str: str, second_str: str)-> Page:
                 state.steps.append(f"{first_formatted} ÷ {second_formatted} = DNE")
         
         elif state.option == '^':
-            result = first ** second
             state.last_equation = '(' + first_formatted + ') ^ ' + second_formatted
+            result = first ** second
             state.operators.append('^')
             state.steps.append(f"{first_formatted} ^ {second_formatted} = {comma_format(result)}")
             
@@ -507,6 +538,8 @@ def combined_calc(state: State, first_str: str, second_str: str)-> Page:
     except ZeroDivisionError as error:
         state.last_equation = error.args[0] + ' ÷ 0.0'
         state.last_answer = 'DNE'
+    except Exception:
+        state.last_answer = 'Error!'
     
     return results_page(state)
 
@@ -558,11 +591,15 @@ def filter_expression(input_str: str)-> list[str]:
     for item in filtered_list:
         if expression_list:
             past_item = expression_list[-1]
-            if item == '(':
-                if past_item != '(' and past_item not in opps_list:
+            if item == '(' and past_item not in opps_list:
+                if past_item != '(':
                     expression_list.append('*')
-                
+                    
                 expression_list.append('(')
+                
+            elif past_item == ')' and item not in opps_list:
+                expression_list.append(')')
+                expression_list.append('*')
             
             elif item in opps_list and past_item in opps_list:
                 if item == '-':
@@ -570,7 +607,7 @@ def filter_expression(input_str: str)-> list[str]:
                     expression_list.append('(')
                     expression_list.append('-')
             
-            elif special_negative and not item in opps_list:
+            elif special_negative and item not in opps_list:
                 expression_list.append(item)
                 while special_negative:
                     special_negative -= 1
@@ -838,7 +875,7 @@ def results_page(state: State)-> Page:
     state.option = ''
     state.operators = []
     state.steps = []
-    if not state.last_answer == 'DNE':
+    if not state.last_answer == 'DNE' and not state.last_answer == 'Error!':
         state.keep_answer = True
     
     return Page(state, [
